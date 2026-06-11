@@ -36,112 +36,98 @@ class GrafikScreen extends ConsumerStatefulWidget {
 
 class _GrafikScreenState extends ConsumerState<GrafikScreen>
     with TickerProviderStateMixin {
-  // --- Filter holati ---
   String _selectedFilter = 'Bugun';
   int _selectedTab = 0;
 
-  // --- Animatsiya kontrollerlar ---
   late AnimationController _cardAnimController;
-  late AnimationController _listAnimController;
   late AnimationController _barAnimController;
-
   late Animation<double> _cardAnim;
-  late Animation<double> _listAnim;
   late Animation<double> _barAnim;
 
-  // --- Filtr ro'yxati (aniq kun bilan) ---
   final List<String> _filters = ['Bugun', 'Kecha', 'Shu hafta', 'Shu oy'];
+
+  static const Color primaryColor = Color(0xFF1E3A8A);
+  static const Color bgColor = Color(0xFFF1F5F9);
 
   @override
   void initState() {
     super.initState();
-
     _cardAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _listAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
+        vsync: this, duration: const Duration(milliseconds: 600));
     _barAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-
-    _cardAnim = CurvedAnimation(parent: _cardAnimController, curve: Curves.easeOutBack);
-    _listAnim = CurvedAnimation(parent: _listAnimController, curve: Curves.easeOut);
-    _barAnim = CurvedAnimation(parent: _barAnimController, curve: Curves.easeOutCubic);
-
+        vsync: this, duration: const Duration(milliseconds: 1000));
+    _cardAnim =
+        CurvedAnimation(parent: _cardAnimController, curve: Curves.easeOutBack);
+    _barAnim =
+        CurvedAnimation(parent: _barAnimController, curve: Curves.easeOutCubic);
     _cardAnimController.forward();
-    _listAnimController.forward();
     _barAnimController.forward();
   }
 
   @override
   void dispose() {
     _cardAnimController.dispose();
-    _listAnimController.dispose();
     _barAnimController.dispose();
     super.dispose();
   }
 
   void _restartAnimations() {
-    _cardAnimController.reset();
-    _listAnimController.reset();
-    _barAnimController.reset();
-    _cardAnimController.forward();
-    _listAnimController.forward();
-    _barAnimController.forward();
+    _cardAnimController
+      ..reset()
+      ..forward();
+    _barAnimController
+      ..reset()
+      ..forward();
   }
 
   // ==========================================
-  // YORDAMCHI FUNKSIYALAR
+  // SANA PARSE — UTC ni lokal vaqtga o'girish
   // ==========================================
 
-  /// Pulni chiroyli formatlash: 125000 → "125 000"
-  String formatMoney(double amount) {
-    return NumberFormat('#,##0', 'en_US')
-        .format(amount)
-        .replaceAll(',', ' ');
-  }
-
-  /// Serverdan keladigan barcha sana formatlarini o'qish:
-  /// "2026-06-10 10:23:27", "2026-06-10T10:23:27Z", "2026-06-10T10:23:27" va h.k.
+  /// Serverdan kelgan sana stringni LOCAL DateTime ga o'giradi.
+  /// Server O'zbekiston vaqtida (UTC+5) saqlaydi lekin timezone belgisiz,
+  /// shuning uchun uni UTC deb emas, LOCAL deb o'qiymiz.
   DateTime? _parseDate(dynamic rawDate) {
     if (rawDate == null) return null;
     String s = rawDate.toString().trim();
     if (s.isEmpty) return null;
 
-    // Timezone belgilarini olib tashlash: Z, +05:00, +0500
+    // Agar "Z" yoki "+HH:MM" bor bo'lsa — olib tashlaymiz
+    // Chunki server O'zbekiston vaqtini timezone belgisiz saqlaydi
     s = s
         .replaceAll('Z', '')
         .replaceAllMapped(RegExp(r'[+-]\d{2}:?\d{2}$'), (_) => '')
         .trim();
 
-    // "T" ni bo'sh joy bilan almashtirish: "2026-06-10T10:23:27" → "2026-06-10 10:23:27"
+    // "T" ni bo'sh joy bilan almashtirish
     s = s.replaceAll('T', ' ');
 
-    // To'g'ridan-to'g'ri parse qilish
-    DateTime? dt = DateTime.tryParse(s);
-    if (dt != null) return dt;
+    // "2026-06-11 8:44:22" — bir xonali soat ham bo'lishi mumkin
+    // DateTime.tryParse faqat ISO formatni qabul qiladi, shuning uchun
+    // soatni ikki xonali qilamiz: "8:44" → "08:44"
+    s = s.replaceAllMapped(
+        RegExp(r'^(\d{4}-\d{2}-\d{2}) (\d):'), (m) => '${m[1]} 0${m[2]}:');
 
-    // Qo'lda formatlashga urinish
+    DateTime? dt = DateTime.tryParse(s);
+    if (dt != null) return dt.add(const Duration(hours: 5));
+
+    // Qo'shimcha formatlar
     for (final fmt in [
       'yyyy-MM-dd HH:mm:ss',
       'yyyy-MM-dd HH:mm',
       'yyyy-MM-dd',
-      'dd.MM.yyyy HH:mm:ss',
-      'dd.MM.yyyy',
     ]) {
       try {
-        return DateFormat(fmt).parseStrict(s);
+        return DateFormat(fmt).parseStrict(s).add(const Duration(hours: 5));
       } catch (_) {}
     }
     return null;
   }
 
-  /// Filtrlash: faqat tanlangan kunni ko'rsatish
+  // ==========================================
+  // FILTRLASH
+  // ==========================================
+
   bool _isMatchingFilter(dynamic item) {
     if (item == null) return false;
     final rawDate = item['created_at'] ??
@@ -152,7 +138,6 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     if (date == null) return false;
 
     final now = DateTime.now();
-    // Soat/minut ta'sirini yo'qotish uchun faqat yil-oy-kun
     final today = DateTime(now.year, now.month, now.day);
     final itemDay = DateTime(date.year, date.month, date.day);
 
@@ -162,8 +147,8 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
       case 'Kecha':
         return itemDay == today.subtract(const Duration(days: 1));
       case 'Shu hafta':
-      // Dushanba boshlanish
-        final weekStart = today.subtract(Duration(days: today.weekday - 1));
+        final weekStart =
+        today.subtract(Duration(days: today.weekday - 1));
         return !itemDay.isBefore(weekStart) && !itemDay.isAfter(today);
       case 'Shu oy':
         return date.year == now.year && date.month == now.month;
@@ -172,23 +157,34 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     }
   }
 
-  /// Filter uchun odam tushunadigan sana labelini olish
+  // ==========================================
+  // YORDAMCHILAR
+  // ==========================================
+
+  String formatMoney(double amount) {
+    return NumberFormat('#,##0', 'en_US')
+        .format(amount)
+        .replaceAll(',', ' ');
+  }
+
   String _getFilterDateLabel(String filter) {
     final now = DateTime.now();
     switch (filter) {
       case 'Bugun':
         return DateFormat('dd.MM.yyyy').format(now);
       case 'Kecha':
-        return DateFormat('dd.MM.yyyy').format(now.subtract(const Duration(days: 1)));
+        return DateFormat('dd.MM.yyyy')
+            .format(now.subtract(const Duration(days: 1)));
       case 'Shu hafta':
-        final weekStart = now.subtract(Duration(days: now.weekday - 1));
+        final weekStart =
+        now.subtract(Duration(days: now.weekday - 1));
         return '${DateFormat('dd.MM').format(weekStart)} - ${DateFormat('dd.MM').format(now)}';
       case 'Shu oy':
-        const monthNames = [
+        const months = [
           'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun',
           'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'
         ];
-        return '${monthNames[now.month - 1]} ${now.year}';
+        return '${months[now.month - 1]} ${now.year}';
       default:
         return '';
     }
@@ -200,34 +196,21 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
 
   @override
   Widget build(BuildContext context) {
-    const Color primaryColor = Color(0xFF1E3A8A);
-    const Color accentColor = Color(0xFF3B82F6);
-    const Color bgColor = Color(0xFFF1F5F9);
-
     final salesAsync = ref.watch(salesProvider);
     final debtorsAsync = ref.watch(debtorsProvider);
 
     return Scaffold(
       backgroundColor: bgColor,
-      appBar: _buildAppBar(primaryColor),
+      appBar: _buildAppBar(),
       body: salesAsync.when(
         loading: () => _buildLoading(),
         error: (err, _) => _buildError("Savdolar yuklanmadi: $err"),
-        data: (allSales) {
-          return debtorsAsync.when(
-            loading: () => _buildLoading(),
-            error: (err, _) => _buildError("Qarzdorlar yuklanmadi: $err"),
-            data: (allDebtors) {
-              return _buildBody(
-                context,
-                allSales: allSales,
-                allDebtors: allDebtors,
-                primaryColor: primaryColor,
-                accentColor: accentColor,
-              );
-            },
-          );
-        },
+        data: (allSales) => debtorsAsync.when(
+          loading: () => _buildLoading(),
+          error: (err, _) => _buildError("Qarzdorlar yuklanmadi: $err"),
+          data: (allDebtors) =>
+              _buildBody(allSales: allSales, allDebtors: allDebtors),
+        ),
       ),
     );
   }
@@ -236,7 +219,7 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
   // APP BAR
   // ==========================================
 
-  AppBar _buildAppBar(Color primaryColor) {
+  AppBar _buildAppBar() {
     return AppBar(
       elevation: 0,
       backgroundColor: primaryColor,
@@ -247,25 +230,21 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
           const Text(
             "TUSHUMLAR VA QARZLAR",
             style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-              letterSpacing: 0.5,
-            ),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                letterSpacing: 0.5),
           ),
           Text(
             _getFilterDateLabel(_selectedFilter),
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 11,
-            ),
+            style:
+            const TextStyle(color: Colors.white70, fontSize: 11),
           ),
         ],
       ),
       actions: [
         IconButton(
           icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-          tooltip: "Yangilash",
           onPressed: () {
             ref.refresh(salesProvider);
             ref.refresh(debtorsProvider);
@@ -277,17 +256,14 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
   }
 
   // ==========================================
-  // BODY
+  // BODY — butun ekran CustomScrollView
   // ==========================================
 
-  Widget _buildBody(
-      BuildContext context, {
-        required List<dynamic> allSales,
-        required List<dynamic> allDebtors,
-        required Color primaryColor,
-        required Color accentColor,
-      }) {
-    // --- Ma'lumotlarni filtrlash ---
+  Widget _buildBody({
+    required List<dynamic> allSales,
+    required List<dynamic> allDebtors,
+  }) {
+    // Ma'lumotlarni hisoblash
     final currentSales = allSales.where(_isMatchingFilter).toList();
 
     double jamiNaqd = 0;
@@ -297,8 +273,10 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     final List<dynamic> qarzSavdolar = [];
 
     for (var sale in currentSales) {
-      final price = double.tryParse((sale['total_price'] ?? 0).toString()) ?? 0.0;
-      final type = (sale['payment_type'] ?? '').toString().toLowerCase().trim();
+      final price =
+          double.tryParse((sale['total_price'] ?? 0).toString()) ?? 0.0;
+      final type =
+      (sale['payment_type'] ?? '').toString().toLowerCase().trim();
 
       if (type == 'naqd') {
         jamiNaqd += price;
@@ -312,85 +290,118 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
       }
     }
 
-    // Faqat to'langan qarzlar (debtors jadvalidan)
+    // Faqat to'langan qarzlar
     final paidDebtors = allDebtors
-        .where((d) => (d['status'] ?? '').toString().toLowerCase() == 'paid')
+        .where((d) =>
+    (d['status'] ?? '').toString().toLowerCase() == 'paid')
         .toList();
 
     final jamiTushum = jamiNaqd + jamiPlastik;
 
-    return Column(
-      children: [
-        // Filtr + Kartalar (scroll qilmaydigan qism)
-        Container(
-          color: const Color(0xFF1E3A8A),
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Column(
-            children: [
-              // Filtr tugmalari
-              _buildFilterBar(primaryColor),
-              const SizedBox(height: 16),
-              // Statistika kartalar
-              _buildStatsSection(
-                jamiNaqd: jamiNaqd,
-                jamiPlastik: jamiPlastik,
-                jamiTushum: jamiTushum,
-                jamiQarz: jamiQarz,
-                primaryColor: primaryColor,
-                accentColor: accentColor,
-              ),
-            ],
-          ),
-        ),
+    // Tab bo'yicha ro'yxat
+    List<dynamic> activeList;
+    switch (_selectedTab) {
+      case 0:
+        activeList = [...kassaTushumlari]..sort((a, b) =>
+            (_parseDate(b['created_at'] ?? b['createdAt'] ?? b['date']) ??
+                DateTime(0))
+                .compareTo(_parseDate(
+                a['created_at'] ?? a['createdAt'] ?? a['date']) ??
+                DateTime(0)));
+        break;
+      case 1:
+        activeList = [...paidDebtors];
+        break;
+      default:
+        activeList = [...qarzSavdolar]..sort((a, b) =>
+            (_parseDate(b['created_at'] ?? b['createdAt'] ?? b['date']) ??
+                DateTime(0))
+                .compareTo(_parseDate(
+                a['created_at'] ?? a['createdAt'] ?? a['date']) ??
+                DateTime(0)));
+    }
 
-        // Bar grafik
-        _buildBarChart(
-          jamiNaqd: jamiNaqd,
-          jamiPlastik: jamiPlastik,
-          jamiQarz: jamiQarz,
-        ),
-
-        // Tab va ro'yxat
-        Expanded(
-          child: Column(
-            children: [
-              _buildTabBar(primaryColor),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.05, 0),
-                        end: Offset.zero,
-                      ).animate(anim),
-                      child: child,
-                    ),
-                  ),
-                  child: Container(
-                    key: ValueKey(_selectedTab),
-                    color: const Color(0xFFF1F5F9),
-                    child: _selectedTab == 0
-                        ? _buildTushumlarList(kassaTushumlari)
-                        : _selectedTab == 1
-                        ? _buildQarzlarList(paidDebtors)
-                        : _buildQarzSavdoList(qarzSavdolar),
-                  ),
+    // ==========================================
+    // BUTUN EKRAN SCROLLABLE
+    // ==========================================
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        // --- Header: filter + kartalar ---
+        SliverToBoxAdapter(
+          child: Container(
+            color: primaryColor,
+            padding: const EdgeInsets.only(bottom: 24),
+            child: Column(
+              children: [
+                _buildFilterBar(),
+                const SizedBox(height: 16),
+                _buildStatsCards(
+                  jamiNaqd: jamiNaqd,
+                  jamiPlastik: jamiPlastik,
+                  jamiTushum: jamiTushum,
+                  jamiQarz: jamiQarz,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
+
+        // --- Bar grafik ---
+        SliverToBoxAdapter(
+          child: _buildBarChart(
+            jamiNaqd: jamiNaqd,
+            jamiPlastik: jamiPlastik,
+            jamiQarz: jamiQarz,
+          ),
+        ),
+
+        // --- Tab bar ---
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _TabHeaderDelegate(
+            child: _buildTabBar(),
+          ),
+        ),
+
+        // --- Ro'yxat elementlari ---
+        if (activeList.isEmpty)
+          SliverFillRemaining(
+            child: _buildEmpty(_emptyMessage()),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                  final item = activeList[index];
+                  return _buildListTile(item, index);
+                },
+                childCount: activeList.length,
+              ),
+            ),
+          ),
       ],
     );
+  }
+
+  String _emptyMessage() {
+    switch (_selectedTab) {
+      case 0:
+        return "Bu davrda kassa tushumi yo'q";
+      case 1:
+        return "To'langan qarzlar topilmadi";
+      default:
+        return "Bu davrda qarzga savdo yo'q";
+    }
   }
 
   // ==========================================
   // FILTR BAR
   // ==========================================
 
-  Widget _buildFilterBar(Color primaryColor) {
+  Widget _buildFilterBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: SingleChildScrollView(
@@ -400,44 +411,45 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
             final isActive = _selectedFilter == filter;
             return Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                child: InkWell(
-                  onTap: () {
-                    setState(() => _selectedFilter = filter);
-                    _restartAnimations();
-                  },
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isActive ? Colors.white : Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isActive ? Colors.white : Colors.white30,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _selectedFilter = filter);
+                  _restartAnimations();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isActive
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color:
+                      isActive ? Colors.white : Colors.white30,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        filter,
+                        style: TextStyle(
+                          color: isActive ? primaryColor : Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          filter,
-                          style: TextStyle(
-                            color: isActive ? primaryColor : Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
+                      Text(
+                        _getFilterDateLabel(filter),
+                        style: TextStyle(
+                          color: isActive
+                              ? primaryColor.withOpacity(0.6)
+                              : Colors.white54,
+                          fontSize: 9,
                         ),
-                        Text(
-                          _getFilterDateLabel(filter),
-                          style: TextStyle(
-                            color: isActive
-                                ? primaryColor.withOpacity(0.6)
-                                : Colors.white54,
-                            fontSize: 9,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -452,13 +464,11 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
   // STATISTIKA KARTALAR
   // ==========================================
 
-  Widget _buildStatsSection({
+  Widget _buildStatsCards({
     required double jamiNaqd,
     required double jamiPlastik,
     required double jamiTushum,
     required double jamiQarz,
-    required Color primaryColor,
-    required Color accentColor,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -469,49 +479,26 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
             Row(
               children: [
                 Expanded(
-                  child: _buildStatCard(
-                    "NAQD",
-                    jamiNaqd,
-                    Icons.payments_rounded,
-                    const Color(0xFF10B981),
-                    isLight: false,
-                  ),
-                ),
+                    child: _statCard("NAQD", jamiNaqd,
+                        Icons.payments_rounded, const Color(0xFF10B981))),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _buildStatCard(
-                    "PLASTIK",
-                    jamiPlastik,
-                    Icons.credit_card_rounded,
-                    const Color(0xFF3B82F6),
-                    isLight: false,
-                  ),
-                ),
+                    child: _statCard("PLASTIK", jamiPlastik,
+                        Icons.credit_card_rounded, const Color(0xFF3B82F6))),
               ],
             ),
             const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
-                  child: _buildStatCard(
-                    "UMUMIY TUSHUM",
-                    jamiTushum,
-                    Icons.account_balance_wallet_rounded,
-                    Colors.white,
-                    isLight: true,
-                    bigText: true,
-                  ),
-                ),
+                    child: _statCard("UMUMIY TUSHUM", jamiTushum,
+                        Icons.account_balance_wallet_rounded, Colors.white,
+                        isHighlight: true)),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _buildStatCard(
-                    "QARZLAR",
-                    jamiQarz,
-                    Icons.pending_actions_rounded,
-                    const Color(0xFFF59E0B),
-                    isLight: false,
-                  ),
-                ),
+                    child: _statCard("QARZLAR", jamiQarz,
+                        Icons.pending_actions_rounded,
+                        const Color(0xFFF59E0B))),
               ],
             ),
           ],
@@ -520,21 +507,17 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     );
   }
 
-  Widget _buildStatCard(
-      String title,
-      double amount,
-      IconData icon,
-      Color color, {
-        bool isLight = false,
-        bool bigText = false,
-      }) {
+  Widget _statCard(String title, double amount, IconData icon, Color color,
+      {bool isHighlight = false}) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isLight ? Colors.white.withOpacity(0.15) : Colors.white.withOpacity(0.1),
+        color: isHighlight
+            ? Colors.white.withOpacity(0.2)
+            : Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isLight ? Colors.white30 : color.withOpacity(0.4),
+          color: isHighlight ? Colors.white : color.withOpacity(0.4),
         ),
       ),
       child: Column(
@@ -542,46 +525,43 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 16),
-              const SizedBox(width: 6),
+              Icon(icon, color: color, size: 14),
+              const SizedBox(width: 5),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
-                    color: isLight ? Colors.white70 : color.withOpacity(0.9),
+                    color: isHighlight
+                        ? Colors.white70
+                        : color.withOpacity(0.9),
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.3,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             formatMoney(amount),
-            style: TextStyle(
+            style: const TextStyle(
               color: Colors.white,
-              fontSize: bigText ? 18 : 16,
+              fontSize: 17,
               fontWeight: FontWeight.w900,
             ),
             overflow: TextOverflow.ellipsis,
           ),
-          Text(
-            "so'm",
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.5),
-              fontSize: 10,
-            ),
-          ),
+          const Text("so'm",
+              style: TextStyle(color: Colors.white54, fontSize: 10)),
         ],
       ),
     );
   }
 
   // ==========================================
-  // BAR GRAFIK (Animatsiyali)
+  // BAR GRAFIK
   // ==========================================
 
   Widget _buildBarChart({
@@ -589,42 +569,39 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     required double jamiPlastik,
     required double jamiQarz,
   }) {
-    final maxVal = [jamiNaqd, jamiPlastik, jamiQarz].reduce((a, b) => a > b ? a : b);
+    final maxVal = [jamiNaqd, jamiPlastik, jamiQarz]
+        .reduce((a, b) => a > b ? a : b);
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "Statistika",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-              color: Color(0xFF1E3A8A),
-            ),
-          ),
-          const SizedBox(height: 12),
+          const Text("Statistika",
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: primaryColor)),
+          const SizedBox(height: 14),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _buildBar("Naqd", jamiNaqd, maxVal, const Color(0xFF10B981)),
+              _bar("Naqd", jamiNaqd, maxVal, const Color(0xFF10B981)),
               const SizedBox(width: 12),
-              _buildBar("Plastik", jamiPlastik, maxVal, const Color(0xFF3B82F6)),
+              _bar("Plastik", jamiPlastik, maxVal, const Color(0xFF3B82F6)),
               const SizedBox(width: 12),
-              _buildBar("Qarz", jamiQarz, maxVal, const Color(0xFFF59E0B)),
+              _bar("Qarz", jamiQarz, maxVal, const Color(0xFFF59E0B)),
             ],
           ),
         ],
@@ -632,42 +609,32 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     );
   }
 
-  Widget _buildBar(String label, double value, double maxVal, Color color) {
-    const double maxHeight = 70.0;
+  Widget _bar(String label, double value, double maxVal, Color color) {
+    const double maxH = 72.0;
     final ratio = maxVal > 0 ? (value / maxVal) : 0.0;
-
     return Expanded(
       child: Column(
         children: [
           Text(
             formatMoney(value),
             style: TextStyle(
-              fontSize: 9,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
+                fontSize: 9, color: color, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
           AnimatedBuilder(
             animation: _barAnim,
-            builder: (_, __) {
-              return Container(
-                height: maxHeight * ratio * _barAnim.value + 4,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              );
-            },
+            builder: (_, __) => Container(
+              height: maxH * ratio * _barAnim.value + 4,
+              decoration: BoxDecoration(
+                  color: color, borderRadius: BorderRadius.circular(6)),
+            ),
           ),
           const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 10, color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
+          Text(label,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+              textAlign: TextAlign.center),
         ],
       ),
     );
@@ -677,52 +644,54 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
   // TAB BAR
   // ==========================================
 
-  Widget _buildTabBar(Color primaryColor) {
+// ==========================================
+// TAB BAR
+// ==========================================
+
+  Widget _buildTabBar() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          _buildTabItem(0, "Kassa", Icons.receipt_long_rounded, primaryColor),
-          _buildTabItem(1, "To'langan", Icons.task_alt_rounded, primaryColor),
-          _buildTabItem(2, "Qarz savdo", Icons.pending_actions_rounded, primaryColor),
-        ],
+      color: bgColor,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8), // <-- Yuqori padding 8 dan 4 ga tushirildi
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(12)),
+        child: Row(
+          children: [
+            _tabItem(0, "Kassa", Icons.receipt_long_rounded),
+            _tabItem(1, "To'langan", Icons.task_alt_rounded),
+            _tabItem(2, "Qarz savdo", Icons.pending_actions_rounded),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTabItem(int index, String label, IconData icon, Color primaryColor) {
+  Widget _tabItem(int index, String label, IconData icon) {
     final isActive = _selectedTab == index;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _selectedTab = index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 4), // <-- 6 dan 4 ga tushirildi
           decoration: BoxDecoration(
             color: isActive ? primaryColor : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                color: isActive ? Colors.white : Colors.grey,
-                size: 16,
-              ),
+              Icon(icon, color: isActive ? Colors.white : Colors.grey, size: 15),
               const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isActive ? Colors.white : Colors.grey,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              Text(label,
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.grey,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                  )),
             ],
           ),
         ),
@@ -730,337 +699,195 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
     );
   }
 
+
   // ==========================================
-  // RO'YXATLAR
+  // TILE BUILDER — tab ga qarab mos tile
   // ==========================================
 
-  Widget _buildTushumlarList(List<dynamic> items) {
-    if (items.isEmpty) {
-      return _buildEmpty("Bu davrda kassa tushumi yo'q", Icons.receipt_long_rounded);
+  Widget _buildListTile(dynamic item, int index) {
+    switch (_selectedTab) {
+      case 0:
+        return _kassaTile(item);
+      case 1:
+        return _paidDebtTile(item);
+      default:
+        return _qarzSavdoTile(item);
     }
-    final sorted = [...items]..sort((a, b) {
-      final da = _parseDate(a['created_at'] ?? a['createdAt'] ?? a['date']);
-      final db = _parseDate(b['created_at'] ?? b['createdAt'] ?? b['date']);
-      if (da == null || db == null) return 0;
-      return db.compareTo(da);
-    });
+  }
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      itemCount: sorted.length,
-      itemBuilder: (context, index) {
-        return FadeTransition(
-          opacity: _listAnim,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: Offset(0, 0.1 * (index + 1)),
-              end: Offset.zero,
-            ).animate(_listAnim),
-            child: _buildTushumTile(sorted[index]),
-          ),
-        );
-      },
+  // Kassa tushum tile
+  Widget _kassaTile(dynamic item) {
+    final rawDate =
+        item['created_at'] ?? item['createdAt'] ?? item['date'];
+    final date = _parseDate(rawDate) ?? DateTime.now();
+    final timeStr = DateFormat('dd.MM.yyyy, HH:mm').format(date);
+    final price =
+        double.tryParse((item['total_price'] ?? 0).toString()) ?? 0;
+    final type =
+    (item['payment_type'] ?? '').toString().toLowerCase().trim();
+    final isNaqd = type == 'naqd';
+    final color =
+    isNaqd ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
+    final typeLabel = isNaqd ? 'NAQD' : 'PLASTIK';
+    final icon =
+    isNaqd ? Icons.payments_rounded : Icons.credit_card_rounded;
+
+    return _tileCard(
+      icon: icon,
+      iconColor: color,
+      title: (item['product_name'] ?? "Noma'lum").toString(),
+      subtitle: (item['client_name'] ?? '').toString(),
+      timeStr: timeStr,
+      amountText: "+ ${formatMoney(price)}",
+      amountColor: color,
+      badgeText: typeLabel,
+      badgeColor: color,
     );
   }
 
-  Widget _buildTushumTile(dynamic item) {
-    final rawDate = item['created_at'] ?? item['createdAt'] ?? item['date'];
+  // To'langan qarz tile
+  Widget _paidDebtTile(dynamic item) {
+    final price =
+        double.tryParse((item['qarz_price'] ?? 0).toString()) ?? 0;
+    final rawDate =
+        item['updated_at'] ?? item['created_at'] ?? item['createdAt'];
+    final date = _parseDate(rawDate) ?? DateTime.now();
+    final dateStr = DateFormat('dd.MM.yyyy, HH:mm').format(date);
+
+    return _tileCard(
+      icon: Icons.task_alt_rounded,
+      iconColor: Colors.blue,
+      title: (item['client_name'] ?? 'Mijoz').toString(),
+      subtitle: (item['service_name'] ?? '').toString(),
+      timeStr: dateStr,
+      amountText: formatMoney(price),
+      amountColor: Colors.blue,
+      badgeText: "TO'LANDI",
+      badgeColor: Colors.blue,
+    );
+  }
+
+  // Qarzga savdo tile
+  Widget _qarzSavdoTile(dynamic item) {
+    const color = Color(0xFFF59E0B);
+    final rawDate =
+        item['created_at'] ?? item['createdAt'] ?? item['date'];
     final date = _parseDate(rawDate) ?? DateTime.now();
     final timeStr = DateFormat('dd.MM.yyyy, HH:mm').format(date);
-    final price = double.tryParse((item['total_price'] ?? 0).toString()) ?? 0;
-    final type = (item['payment_type'] ?? '').toString().toLowerCase().trim();
-    final isNaqd = type == 'naqd';
-    final color = isNaqd ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
-    final typeLabel = isNaqd ? 'NAQD' : 'PLASTIK';
+    final price =
+        double.tryParse((item['total_price'] ?? 0).toString()) ?? 0;
 
+    return _tileCard(
+      icon: Icons.pending_actions_rounded,
+      iconColor: color,
+      title: (item['product_name'] ?? "Noma'lum").toString(),
+      subtitle: (item['client_name'] ?? '').toString(),
+      timeStr: timeStr,
+      amountText: formatMoney(price),
+      amountColor: color,
+      badgeText: "QARZGA",
+      badgeColor: color,
+      borderColor: color.withOpacity(0.3),
+    );
+  }
+
+  // Umumiy tile template
+// Umumiy tile template
+  Widget _tileCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required String timeStr,
+    required String amountText,
+    required Color amountColor,
+    required String badgeText,
+    required Color badgeColor,
+    Color? borderColor,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
+        border: borderColor != null
+            ? Border.all(color: borderColor)
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: iconColor.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              isNaqd ? Icons.payments_rounded : Icons.credit_card_rounded,
-              color: color,
-              size: 20,
-            ),
+            child: Icon(icon, color: iconColor, size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, // <-- To'g'rilandi
               children: [
-                Text(
-                  (item['product_name'] ?? "Noma'lum").toString(),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text(title,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Text(subtitle,
+                      style: TextStyle(
+                          color: iconColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ],
                 const SizedBox(height: 2),
-                Text(
-                  timeStr,
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                ),
+                Text(timeStr,
+                    style: TextStyle(
+                        color: Colors.grey.shade500, fontSize: 10)),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min, // <-- To'g'rilandi
             children: [
-              Text(
-                "+ ${formatMoney(price)}",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: color,
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(top: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  typeLabel,
+              Text(amountText,
                   style: TextStyle(
-                    color: color,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: amountColor)),
+              const SizedBox(height: 3),
+              Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: badgeColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(5),
                 ),
+                child: Text(badgeText,
+                    style: TextStyle(
+                        color: badgeColor,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildQarzlarList(List<dynamic> items) {
-    if (items.isEmpty) {
-      return _buildEmpty("To'langan qarzlar topilmadi", Icons.task_alt_rounded);
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[items.length - 1 - index];
-        final price = double.tryParse((item['qarz_price'] ?? 0).toString()) ?? 0;
-        final rawDate = item['updated_at'] ?? item['created_at'] ?? item['createdAt'];
-        final date = _parseDate(rawDate) ?? DateTime.now();
-        final dateStr = DateFormat('dd.MM.yyyy, HH:mm').format(date);
-
-        return FadeTransition(
-          opacity: _listAnim,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.task_alt_rounded, color: Colors.blue, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (item['client_name'] ?? 'Mijoz').toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        dateStr,
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      formatMoney(price),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Colors.blue,
-                      ),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.only(top: 3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        "TO'LANDI",
-                        style: TextStyle(
-                          color: Colors.blue,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildQarzSavdoList(List<dynamic> items) {
-    if (items.isEmpty) {
-      return _buildEmpty("Bu davrda qarzga savdo yo'q", Icons.pending_actions_rounded);
-    }
-    final sorted = [...items]..sort((a, b) {
-      final da = _parseDate(a['created_at'] ?? a['createdAt'] ?? a['date']);
-      final db = _parseDate(b['created_at'] ?? b['createdAt'] ?? b['date']);
-      if (da == null || db == null) return 0;
-      return db.compareTo(da);
-    });
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      itemCount: sorted.length,
-      itemBuilder: (context, index) {
-        final item = sorted[index];
-        final rawDate = item['created_at'] ?? item['createdAt'] ?? item['date'];
-        final date = _parseDate(rawDate) ?? DateTime.now();
-        final timeStr = DateFormat('dd.MM.yyyy, HH:mm').format(date);
-        final price = double.tryParse((item['total_price'] ?? 0).toString()) ?? 0;
-
-        return FadeTransition(
-          opacity: _listAnim,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.3)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.pending_actions_rounded,
-                      color: Color(0xFFF59E0B), size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (item['product_name'] ?? "Noma'lum").toString(),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        (item['client_name'] ?? '').toString(),
-                        style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        timeStr,
-                        style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      formatMoney(price),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Color(0xFFF59E0B),
-                      ),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.only(top: 3),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF59E0B).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        "QARZGA",
-                        style: TextStyle(
-                          color: Color(0xFFF59E0B),
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -1073,9 +900,10 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: Color(0xFF1E3A8A)),
+          CircularProgressIndicator(color: primaryColor),
           SizedBox(height: 12),
-          Text("Yuklanmoqda...", style: TextStyle(color: Colors.grey)),
+          Text("Yuklanmoqda...",
+              style: TextStyle(color: Colors.grey, fontSize: 13)),
         ],
       ),
     );
@@ -1088,22 +916,48 @@ class _GrafikScreenState extends ConsumerState<GrafikScreen>
         children: [
           const Icon(Icons.error_outline, color: Colors.red, size: 48),
           const SizedBox(height: 12),
-          Text(msg, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+          Text(msg,
+              style: const TextStyle(color: Colors.red),
+              textAlign: TextAlign.center),
         ],
       ),
     );
   }
 
-  Widget _buildEmpty(String msg, IconData icon) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: Colors.grey.shade300, size: 56),
-          const SizedBox(height: 12),
-          Text(msg, style: TextStyle(color: Colors.grey.shade400, fontSize: 14)),
-        ],
-      ),
+  Widget _buildEmpty(String msg) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.inbox_rounded,
+            color: Colors.grey.shade300, size: 60),
+        const SizedBox(height: 12),
+        Text(msg,
+            style:
+            TextStyle(color: Colors.grey.shade400, fontSize: 14)),
+      ],
     );
   }
+}
+
+// ==========================================
+// PINNED TAB BAR DELEGATE
+// ==========================================
+
+class _TabHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  const _TabHeaderDelegate({required this.child});
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) =>
+      child;
+
+  @override
+  double get maxExtent => 58;
+
+  @override
+  double get minExtent => 58;
+
+  @override
+  bool shouldRebuild(_TabHeaderDelegate old) => old.child != child;
 }
